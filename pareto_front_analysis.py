@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-"""
-pareto_front_analysis.py
-
-Perform a Pareto‐front analysis of price_threshold vs. total_revenue
-by sweeping turbine_capacity, TES_cap and charge/discharge price threshold.
-
-Usage:
-    python pareto_front_analysis.py
-
-This script assumes you have a file named "wind and temp.xlsx" in your Downloads folder.
-"""
-
 import os
 import itertools
 
