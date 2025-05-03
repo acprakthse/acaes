@@ -321,19 +321,44 @@ def run_pareto(self):
 
     self.log.insert(tk.END, "Pareto analysis complete.\n"); self.log.see(tk.END)
 
-    win = tk.Toplevel(self); win.title("Pareto Front")
+    # 4) plot in a new Tk window, coloring by TES capacity
+    win = tk.Toplevel(self)
+    win.title("Pareto Front by TES Capacity")
     fig, ax = plt.subplots(figsize=(6,4))
-    ax.scatter(results["total_revenue_€"], results["price_threshold_€/kWh"],
-               color="lightgray", label="All runs")
-    ax.scatter(pareto_df["total_revenue_€"], pareto_df["price_threshold_€/kWh"],
-               color="red", label="Pareto front")
+    
+    # pick one distinct color per TES capacity
+    unique_sc = sorted(results["TES_capacity_kWh"].unique())
+    cmap = plt.cm.get_cmap('tab10', len(unique_sc))
+    
+    for idx, sc in enumerate(unique_sc):
+        df_sc = results[results["TES_capacity_kWh"] == sc]
+        ax.scatter(
+            df_sc["total_revenue_€"],
+            df_sc["price_threshold_€/kWh"],
+            color=cmap(idx),
+            label=f"{sc} kWh",
+            alpha=0.7
+        )
+    
+    # overlay Pareto front with black circles (no fill)
+    ax.scatter(
+        pareto_df["total_revenue_€"],
+        pareto_df["price_threshold_€/kWh"],
+        facecolors='none',
+        edgecolors='k',
+        s=100,
+        linewidths=1.5,
+        label="Pareto Front"
+    )
+    
     ax.set_xlabel("Total Revenue (€)")
     ax.set_ylabel("Price Threshold (€/kWh)")
-    ax.set_title("Pareto Front")
-    ax.legend()
+    ax.set_title("Pareto Front by TES Capacity")
+    ax.legend(title="TES Capacity")
     canvas = FigureCanvasTkAgg(fig, master=win)
     canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
 
 # Attach extension into the class
 EnergyApp._add_pareto_menu = _add_pareto_menu
