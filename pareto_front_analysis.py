@@ -26,7 +26,7 @@ TURBINE_CAPS    = [10_000, 15_000, 20_000, 25_000]
 STORAGE_CAPS    = [100_000, 200_000, 300_000, 400_000]
 
 # sell/buy price thresholds to test (in €/kWh)
-PRICE_THRESHOLDS = [0.05, 0.06, 0.07, 0.08, 0.09]
+PRICE_THRESHOLDS = list(np.arange(0.01, 0.6, 0.02))
 
 # -----------------------------------------------------------------------------
 # 3) RUN ALL COMBINATIONS

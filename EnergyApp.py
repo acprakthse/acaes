@@ -225,10 +225,9 @@ class EnergyApp(tk.Tk):
             try:
                 importlib.reload(params)
             except Exception:
-                # ensure fresh import
                 if 'params' in sys.modules:
                     del sys.modules['params']
-                params = importlib.import_module('params')
+                importlib.import_module('params')
             importlib.reload(wind_turbine_model)
             importlib.reload(Compressor_Model)
             importlib.reload(energy_management)
@@ -238,6 +237,127 @@ class EnergyApp(tk.Tk):
         else:
             messagebox.showinfo("No Changes", "No parameter values were changed.")
         window.destroy()
+
+# === BEGIN PARETO MENU EXTENSION ===
+
+import tkinter.simpledialog as simpledialog
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.pyplot as plt
+import itertools
+import numpy as np
+import pandas as pd
+
+def _add_pareto_menu(self):
+    # Grab the existing menubar and add our Pareto cascade
+    menubar = self.nametowidget(self['menu'])
+    pareto_menu = tk.Menu(menubar, tearoff=0)
+    pareto_menu.add_command(label="Run Pareto Analysis", command=self.run_pareto)
+    menubar.add_cascade(label="Pareto", menu=pareto_menu)
+
+def _parse_list(s, cast=float):
+    """Helper to parse comma-separated list into [cast(x), ...]."""
+    return [cast(item.strip()) for item in s.split(',') if item.strip()]
+
+def run_pareto(self):
+    if not self.file_path:
+        messagebox.showwarning("No File",
+            "Please select a wind data file first (same one you use for normal analysis).")
+        return
+
+    t_caps = simpledialog.askstring(
+        "Turbine capacities",
+        "Enter turbine capacities (kW), comma-separated:",
+        parent=self
+    )
+    if t_caps is None: return
+    s_caps = simpledialog.askstring(
+        "Storage capacities",
+        "Enter TES capacities (kWh), comma-separated:",
+        parent=self
+    )
+    if s_caps is None: return
+    p_thresh = simpledialog.askstring(
+        "Price thresholds",
+        "Enter price thresholds (€/kWh), comma-separated:",
+        parent=self
+    )
+    if p_thresh is None: return
+
+    try:
+        TURBINE_CAPS     = _parse_list(t_caps, float)
+        STORAGE_CAPS     = _parse_list(s_caps, float)
+        PRICE_THRESHOLDS = _parse_list(p_thresh, float)
+    except Exception as e:
+        messagebox.showerror("Parse error",
+            f"Could not parse one of your lists:\n{e}")
+        return
+
+    self.log.insert(tk.END, "\n=== Starting Pareto sweep ===\n")
+    records = []
+    for tc, sc, pt in itertools.product(TURBINE_CAPS, STORAGE_CAPS, PRICE_THRESHOLDS):
+        self.log.insert(tk.END, f"Testing TC={tc}, SC={sc}, PT={pt}\n")
+        self.log.see(tk.END)
+        self.update()
+
+        energy_management.turbine_capacity = tc
+        energy_management.TES_cap         = sc
+
+        df = wind_turbine_model.read_wind_data(self.file_path)
+        df = wind_turbine_model.calculate_power_output(df)
+        df = wind_turbine_model.apply_conditions(df)
+        df = Compressor_Model.compressor_energy_model(df)
+        df = energy_management.allocate_energy_storage(df,
+                       charge_threshold=pt, discharge_threshold=pt)
+        df = revenue.calculate_revenue(df)
+
+        total_rev = df["Total_Revenue"].sum()
+        records.append({
+            "turbine_capacity_kW":     tc,
+            "TES_capacity_kWh":        sc,
+            "price_threshold_€/kWh":   pt,
+            "total_revenue_€":         total_rev
+        })
+
+    results = pd.DataFrame(records)
+    pts = results[["price_threshold_€/kWh", "total_revenue_€"]].values
+    is_pareto = np.ones(len(pts), dtype=bool)
+    for i, p in enumerate(pts):
+        mask = (pts[:,0] <= p[0]) & (pts[:,1] >= p[1])
+        mask[i] = False
+        if np.any(mask):
+            is_pareto[i] = False
+    pareto_df = results[is_pareto]
+
+    self.log.insert(tk.END, "Pareto analysis complete.\n")
+    self.log.see(tk.END)
+
+    win = tk.Toplevel(self)
+    win.title("Pareto Front")
+    fig, ax = plt.subplots(figsize=(6,4))
+    ax.scatter(results["total_revenue_€"], results["price_threshold_€/kWh"],
+               color="lightgray", label="All runs")
+    ax.scatter(pareto_df["total_revenue_€"], pareto_df["price_threshold_€/kWh"],
+               color="red", label="Pareto front")
+    ax.set_xlabel("Total Revenue (€)")
+    ax.set_ylabel("Price Threshold (€/kWh)")
+    ax.set_title("Pareto Front")
+    ax.legend()
+    canvas = FigureCanvasTkAgg(fig, master=win)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+# Attach our new methods into EnergyApp
+EnergyApp.run_pareto    = run_pareto
+EnergyApp._add_pareto_menu = _add_pareto_menu
+
+# Monkey-patch __init__ to insert our menu after the original one runs
+_orig_init = EnergyApp.__init__
+def _patched_init(self, *args, **kwargs):
+    _orig_init(self, *args, **kwargs)
+    self._add_pareto_menu()
+EnergyApp.__init__ = _patched_init
+
+# === END PARETO MENU EXTENSION ===
 
 if __name__ == "__main__":
     app = EnergyApp()
