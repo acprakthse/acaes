@@ -4,12 +4,19 @@ import io
 import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, PhotoImage
+import tkinter.simpledialog as simpledialog
+
 import pandas as pd
+import numpy as np
+import itertools
 from datetime import datetime
 import importlib
-import params
 
-# Import user modules
+# plotting for Pareto
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+import params
 import wind_turbine_model
 import Compressor_Model
 import energy_management
@@ -18,7 +25,7 @@ import revenue
 # Paths
 DIR_PATH = os.path.dirname(__file__)
 PARAMS_FILE = os.path.join(DIR_PATH, 'params.py')
-BG_IMAGE = os.path.join(DIR_PATH, 'params_bg.png')  # Background for parameter editor
+BG_IMAGE = os.path.join(DIR_PATH, 'params_bg.png')
 
 class EnergyApp(tk.Tk):
     def __init__(self):
@@ -50,7 +57,8 @@ class EnergyApp(tk.Tk):
         # Control buttons
         control_frame = tk.Frame(self)
         control_frame.pack(fill=tk.X, padx=10, pady=5)
-        tk.Button(control_frame, text="Run Analysis", command=self.run_analysis, bg="#4CAF50", fg="white").pack(side=tk.LEFT)
+        tk.Button(control_frame, text="Run Analysis", command=self.run_analysis,
+                  bg="#4CAF50", fg="white").pack(side=tk.LEFT)
         tk.Button(control_frame, text="Save Results", command=self.save_results).pack(side=tk.RIGHT)
 
         # Output log
@@ -74,44 +82,36 @@ class EnergyApp(tk.Tk):
         if not self.file_path:
             messagebox.showwarning("No File", "Please select a wind data file first.")
             return
-        # Clear previous log
         self.log.delete(1.0, tk.END)
         self.log.insert(tk.END, "Starting analysis...\n")
-        # Capture print output
+
         buf = io.StringIO()
         old_stdout = sys.stdout
         sys.stdout = buf
         try:
-            # 1. Read wind data
             df = wind_turbine_model.read_wind_data(self.file_path)
             self.log.insert(tk.END, f"Data loaded: {len(df)} rows\n")
-            
-            # 2. Wind power calculations
+
             df = wind_turbine_model.calculate_power_output(df)
             self.log.insert(tk.END, "Calculated wind power output.\n")
 
-            # 3. Apply operational conditions
             df = wind_turbine_model.apply_conditions(df)
             self.log.insert(tk.END, "Applied turbine operating conditions.\n")
 
-            # 4. Compressor model
             df = Compressor_Model.compressor_energy_model(df)
             self.log.insert(tk.END, "Computed compressor energy model.\n")
 
-            # 5. Energy management (storage allocation)
             df = energy_management.allocate_energy_storage(df)
             self.log.insert(tk.END, "Allocated energy storage.\n")
 
-            # 6. Revenue calculation
             df = revenue.calculate_revenue(df)
             self.log.insert(tk.END, "Calculated revenue.\n")
 
-            # Restore stdout and write captured prints to log
             sys.stdout = old_stdout
             output = buf.getvalue()
             self.log.insert(tk.END, output)
-            # Save processed DataFrame
             self.data = df
+
         except Exception as e:
             sys.stdout = old_stdout
             messagebox.showerror("Analysis Error", str(e))
@@ -121,7 +121,6 @@ class EnergyApp(tk.Tk):
         if self.data is None:
             messagebox.showwarning("No Data", "No analysis results to save. Run analysis first.")
             return
-        # Create timestamp for filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         default_name = f"results_{timestamp}.xlsx"
         filetypes = [("Excel files", "*.xlsx"), ("CSV files", "*.csv"), ("All files", "*.*")]
@@ -144,7 +143,6 @@ class EnergyApp(tk.Tk):
                 self.log.insert(tk.END, f"Error saving results: {e}\n")
 
     def edit_params(self):
-        # Load and parse params
         lines = open(PARAMS_FILE, 'r').read().splitlines(keepends=True)
         pattern = re.compile(
             r"^(?P<indent>\s*)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>[^#\n]+?)(?P<comment>\s*(#.*))?$"
@@ -156,11 +154,9 @@ class EnergyApp(tk.Tk):
                 name = m.group('name')
                 self.params[name] = {'value': m.group('value').strip(), 'line_no': idx}
 
-        # Editor window
         win = tk.Toplevel(self)
         win.title("Edit Parameters")
 
-        # Background
         if os.path.exists(BG_IMAGE):
             bg = PhotoImage(file=BG_IMAGE)
             canvas = tk.Canvas(win, width=bg.width(), height=bg.height())
@@ -170,7 +166,6 @@ class EnergyApp(tk.Tk):
             canvas = tk.Canvas(win, width=900, height=700, bg='lightgray')
         canvas.pack()
 
-        # Parameter positions and units
         positions = {
             'P1': (350,350), 'P2': (350,380), 'gamma': (350,410), 'cp': (350,440),
             'eta_comp': (350,470), 'eta_trans': (350,500), 'eta_TES': (350,530),
@@ -200,8 +195,8 @@ class EnergyApp(tk.Tk):
             canvas.create_window(x + 5, y, window=ent, anchor='nw')
             self.entries[name] = ent
 
-        # Save button
-        btn = tk.Button(win, text="Save Parameters", command=lambda: self._save_params(lines, win))
+        btn = tk.Button(win, text="Save Parameters",
+                        command=lambda: self._save_params(lines, win))
         canvas.create_window(250, 650, window=btn, anchor='center')
 
     def _save_params(self, lines, window):
@@ -220,11 +215,9 @@ class EnergyApp(tk.Tk):
         if updated:
             with open(PARAMS_FILE, 'w') as f:
                 f.writelines(lines)
-
-            # Reload params and dependent modules without restarting
             try:
                 importlib.reload(params)
-            except Exception:
+            except:
                 if 'params' in sys.modules:
                     del sys.modules['params']
                 importlib.import_module('params')
@@ -232,72 +225,69 @@ class EnergyApp(tk.Tk):
             importlib.reload(Compressor_Model)
             importlib.reload(energy_management)
             importlib.reload(revenue)
-
-            messagebox.showinfo("Parameters Updated", "params.py has been updated and modules reloaded.")
+            messagebox.showinfo("Parameters Updated",
+                                "params.py has been updated and modules reloaded.")
         else:
-            messagebox.showinfo("No Changes", "No parameter values were changed.")
+            messagebox.showinfo("No Changes",
+                                "No parameter values were changed.")
         window.destroy()
 
-# === BEGIN PARETO MENU EXTENSION ===
 
-import tkinter.simpledialog as simpledialog
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.pyplot as plt
-import itertools
-import numpy as np
-import pandas as pd
+# === PARETO EXTENSION: min,max,step ENTRY ===
 
 def _add_pareto_menu(self):
-    # Grab the existing menubar and add our Pareto cascade
     menubar = self.nametowidget(self['menu'])
     pareto_menu = tk.Menu(menubar, tearoff=0)
     pareto_menu.add_command(label="Run Pareto Analysis", command=self.run_pareto)
     menubar.add_cascade(label="Pareto", menu=pareto_menu)
 
-def _parse_list(s, cast=float):
-    """Helper to parse comma-separated list into [cast(x), ...]."""
-    return [cast(item.strip()) for item in s.split(',') if item.strip()]
+def _parse_range(s, cast=float):
+    parts = [p.strip() for p in s.split(',')]
+    if len(parts) != 3:
+        raise ValueError("Expected format: min,max,step")
+    mn, mx, st = cast(parts[0]), cast(parts[1]), cast(parts[2])
+    if st <= 0 or mx < mn:
+        raise ValueError("Require step>0 and max>=min")
+    return list(np.arange(mn, mx + 1e-9, st))
 
 def run_pareto(self):
     if not self.file_path:
         messagebox.showwarning("No File",
-            "Please select a wind data file first (same one you use for normal analysis).")
+            "Please select a wind data file first.")
         return
 
     t_caps = simpledialog.askstring(
-        "Turbine capacities",
-        "Enter turbine capacities (kW), comma-separated:",
+        "Turbine capacity range",
+        "Enter turbine capacity as min,max,step (kW):",
         parent=self
     )
     if t_caps is None: return
     s_caps = simpledialog.askstring(
-        "Storage capacities",
-        "Enter TES capacities (kWh), comma-separated:",
+        "TES capacity range",
+        "Enter TES capacity as min,max,step (kWh):",
         parent=self
     )
     if s_caps is None: return
     p_thresh = simpledialog.askstring(
-        "Price thresholds",
-        "Enter price thresholds (€/kWh), comma-separated:",
+        "Price threshold range",
+        "Enter price threshold as min,max,step (€/kWh):",
         parent=self
     )
     if p_thresh is None: return
 
     try:
-        TURBINE_CAPS     = _parse_list(t_caps, float)
-        STORAGE_CAPS     = _parse_list(s_caps, float)
-        PRICE_THRESHOLDS = _parse_list(p_thresh, float)
+        TURBINE_CAPS     = _parse_range(t_caps, float)
+        STORAGE_CAPS     = _parse_range(s_caps, float)
+        PRICE_THRESHOLDS = _parse_range(p_thresh, float)
     except Exception as e:
-        messagebox.showerror("Parse error",
-            f"Could not parse one of your lists:\n{e}")
+        messagebox.showerror("Parse error", f"Failed to parse range:\n{e}")
         return
 
     self.log.insert(tk.END, "\n=== Starting Pareto sweep ===\n")
     records = []
     for tc, sc, pt in itertools.product(TURBINE_CAPS, STORAGE_CAPS, PRICE_THRESHOLDS):
         self.log.insert(tk.END, f"Testing TC={tc}, SC={sc}, PT={pt}\n")
-        self.log.see(tk.END)
-        self.update()
+        self.log.see(tk.END); self.update()
 
         energy_management.turbine_capacity = tc
         energy_management.TES_cap         = sc
@@ -306,8 +296,9 @@ def run_pareto(self):
         df = wind_turbine_model.calculate_power_output(df)
         df = wind_turbine_model.apply_conditions(df)
         df = Compressor_Model.compressor_energy_model(df)
-        df = energy_management.allocate_energy_storage(df,
-                       charge_threshold=pt, discharge_threshold=pt)
+        df = energy_management.allocate_energy_storage(
+            df, charge_threshold=pt, discharge_threshold=pt
+        )
         df = revenue.calculate_revenue(df)
 
         total_rev = df["Total_Revenue"].sum()
@@ -328,11 +319,9 @@ def run_pareto(self):
             is_pareto[i] = False
     pareto_df = results[is_pareto]
 
-    self.log.insert(tk.END, "Pareto analysis complete.\n")
-    self.log.see(tk.END)
+    self.log.insert(tk.END, "Pareto analysis complete.\n"); self.log.see(tk.END)
 
-    win = tk.Toplevel(self)
-    win.title("Pareto Front")
+    win = tk.Toplevel(self); win.title("Pareto Front")
     fig, ax = plt.subplots(figsize=(6,4))
     ax.scatter(results["total_revenue_€"], results["price_threshold_€/kWh"],
                color="lightgray", label="All runs")
@@ -346,18 +335,16 @@ def run_pareto(self):
     canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-# Attach our new methods into EnergyApp
-EnergyApp.run_pareto    = run_pareto
+# Attach extension into the class
 EnergyApp._add_pareto_menu = _add_pareto_menu
+EnergyApp.run_pareto      = run_pareto
 
-# Monkey-patch __init__ to insert our menu after the original one runs
+# Monkey-patch __init__ to install Pareto menu
 _orig_init = EnergyApp.__init__
 def _patched_init(self, *args, **kwargs):
     _orig_init(self, *args, **kwargs)
     self._add_pareto_menu()
 EnergyApp.__init__ = _patched_init
-
-# === END PARETO MENU EXTENSION ===
 
 if __name__ == "__main__":
     app = EnergyApp()
