@@ -6,6 +6,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, PhotoImage
 import pandas as pd
 from datetime import datetime
+import importlib
+import params
 
 # Import user modules
 import wind_turbine_model
@@ -218,7 +220,21 @@ class EnergyApp(tk.Tk):
         if updated:
             with open(PARAMS_FILE, 'w') as f:
                 f.writelines(lines)
-            messagebox.showinfo("Parameters Updated", "params.py has been updated.")
+
+            # Reload params and dependent modules without restarting
+            try:
+                importlib.reload(params)
+            except Exception:
+                # ensure fresh import
+                if 'params' in sys.modules:
+                    del sys.modules['params']
+                params = importlib.import_module('params')
+            importlib.reload(wind_turbine_model)
+            importlib.reload(Compressor_Model)
+            importlib.reload(energy_management)
+            importlib.reload(revenue)
+
+            messagebox.showinfo("Parameters Updated", "params.py has been updated and modules reloaded.")
         else:
             messagebox.showinfo("No Changes", "No parameter values were changed.")
         window.destroy()
