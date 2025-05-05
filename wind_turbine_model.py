@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from params import (pareto_wind_turbine) 
 
 def read_wind_data(file_path):
  
@@ -64,20 +65,20 @@ def apply_conditions(df):
     df.loc[mask3_cut_in, 'Power_Output_3'] = 0
 
     # Calculate total power output using the given turbine counts:
-    total_power = (df['Power_Output_1'] * 3 +
-                   df['Power_Output_2'] * 3 +
-                   df['Power_Output_3'] * 6)
-    df['Total_Power_Output'] = total_power
-
+    total_power = (df['Power_Output_1'] * 3 * pareto_wind_turbine +
+                   df['Power_Output_2'] * 3 * pareto_wind_turbine +
+                   df['Power_Output_3'] * 6 * pareto_wind_turbine)
+    df['Total_Power_Output'] = (total_power) 
     # Count rows in DataFrame and print
     num_rows = len(df)
     print(f"Number of Hours Operation: {num_rows}")
 
-    total_cap_wind_turbine = 3*2000+3*1750+6*660
+    total_cap_wind_turbine = (3*2000+3*1750+6*660)*pareto_wind_turbine
     cumulative_total_power = df['Total_Power_Output'].sum()
     wind_turbine_cap_fac = cumulative_total_power / (total_cap_wind_turbine * num_rows) * 100
 
-    print(f"Capacity Factor of Wind Farm: {wind_turbine_cap_fac:.2f}%")
+    print(f"Capacity Factor of Wind Farm: {wind_turbine_cap_fac:>15.2f} %")
+    print(f"Capacity of Wind Farm: {total_cap_wind_turbine:>15,.0f} kW")
      
 
     return df
