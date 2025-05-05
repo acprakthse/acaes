@@ -1,7 +1,7 @@
+import sys
 import os
 import re
 import io
-import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, PhotoImage
 import tkinter.simpledialog as simpledialog
@@ -16,16 +16,23 @@ import importlib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+# your modules
 import params
 import wind_turbine_model
 import Compressor_Model
 import energy_management
 import revenue
 
-# Paths
-DIR_PATH = os.path.dirname(__file__)
-PARAMS_FILE = os.path.join(DIR_PATH, 'params.py')
-BG_IMAGE = os.path.join(DIR_PATH, 'params_bg.png')
+# ─── Handle frozen bundle vs. script ──────────────────────────────────────────
+if getattr(sys, 'frozen', False):
+    BASE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.dirname(__file__)
+
+# Paths for params and background
+PARAMS_FILE = os.path.join(BASE_DIR, 'params.py')
+BG_IMAGE    = os.path.join(BASE_DIR, 'params_bg.png')
+
 
 class EnergyApp(tk.Tk):
     def __init__(self):
@@ -42,6 +49,8 @@ class EnergyApp(tk.Tk):
         # Menu bar
         menubar = tk.Menu(self)
         self.config(menu=menubar)
+
+        # Parameters menu
         params_menu = tk.Menu(menubar, tearoff=0)
         params_menu.add_command(label="Edit Parameters", command=self.edit_params)
         menubar.add_cascade(label="Parameters", menu=params_menu)
@@ -89,24 +98,31 @@ class EnergyApp(tk.Tk):
         old_stdout = sys.stdout
         sys.stdout = buf
         try:
+            # 1) Read wind data
             df = wind_turbine_model.read_wind_data(self.file_path)
             self.log.insert(tk.END, f"Data loaded: {len(df)} rows\n")
 
+            # 2) Wind power calculations
             df = wind_turbine_model.calculate_power_output(df)
             self.log.insert(tk.END, "Calculated wind power output.\n")
 
+            # 3) Apply operational conditions
             df = wind_turbine_model.apply_conditions(df)
             self.log.insert(tk.END, "Applied turbine operating conditions.\n")
 
+            # 4) Compressor model
             df = Compressor_Model.compressor_energy_model(df)
             self.log.insert(tk.END, "Computed compressor energy model.\n")
 
+            # 5) Energy management
             df = energy_management.allocate_energy_storage(df)
             self.log.insert(tk.END, "Allocated energy storage.\n")
 
+            # 6) Revenue calculation
             df = revenue.calculate_revenue(df)
             self.log.insert(tk.END, "Calculated revenue.\n")
 
+            # restore stdout
             sys.stdout = old_stdout
             output = buf.getvalue()
             self.log.insert(tk.END, output)
@@ -151,8 +167,10 @@ class EnergyApp(tk.Tk):
         for idx, line in enumerate(lines):
             m = pattern.match(line)
             if m:
-                name = m.group('name')
-                self.params[name] = {'value': m.group('value').strip(), 'line_no': idx}
+                self.params[m.group('name')] = {
+                    'value': m.group('value').strip(),
+                    'line_no': idx
+                }
 
         win = tk.Toplevel(self)
         win.title("Edit Parameters")
@@ -184,6 +202,7 @@ class EnergyApp(tk.Tk):
             'CAES_loss': '%', 'TES_loss': '%',
             'P_max_s': 'Pa', 'T_s': 'K', 'V_pore_s': 'm3'
         }
+
         for name, (x, y) in positions.items():
             val = self.params.get(name, {}).get('value', '')
             unit = units.get(name, '')
@@ -192,7 +211,7 @@ class EnergyApp(tk.Tk):
             canvas.create_window(x, y, window=lbl, anchor='ne')
             ent = tk.Entry(canvas, width=12, justify='left')
             ent.insert(0, val)
-            canvas.create_window(x + 5, y, window=ent, anchor='nw')
+            canvas.create_window(x+5, y, window=ent, anchor='nw')
             self.entries[name] = ent
 
         btn = tk.Button(win, text="Save Parameters",
@@ -208,10 +227,10 @@ class EnergyApp(tk.Tk):
                 orig = lines[idx]
                 comment = orig[orig.find('#'):] if '#' in orig else ''
                 lines[idx] = f"{name} = {new_val} {comment}\n"
-                updated = True
             else:
                 lines.append(f"{name} = {new_val}\n")
-                updated = True
+            updated = True
+
         if updated:
             with open(PARAMS_FILE, 'w') as f:
                 f.writelines(lines)
@@ -228,12 +247,11 @@ class EnergyApp(tk.Tk):
             messagebox.showinfo("Parameters Updated",
                                 "params.py has been updated and modules reloaded.")
         else:
-            messagebox.showinfo("No Changes",
-                                "No parameter values were changed.")
+            messagebox.showinfo("No Changes", "No parameter values were changed.")
         window.destroy()
 
 
-# === PARETO EXTENSION: min,max,step ENTRY ===
+# ─── PARETO EXTENSION: min,max,step INPUT ────────────────────────────────────
 
 def _add_pareto_menu(self):
     menubar = self.nametowidget(self['menu'])
@@ -287,7 +305,8 @@ def run_pareto(self):
     records = []
     for tc, sc, pt in itertools.product(TURBINE_CAPS, STORAGE_CAPS, PRICE_THRESHOLDS):
         self.log.insert(tk.END, f"Testing TC={tc}, SC={sc}, PT={pt}\n")
-        self.log.see(tk.END); self.update()
+        self.log.see(tk.END)
+        self.update()
 
         energy_management.turbine_capacity = tc
         energy_management.TES_cap         = sc
@@ -309,8 +328,9 @@ def run_pareto(self):
             "total_revenue_€":         total_rev
         })
 
-    results = pd.DataFrame(records)
-    pts = results[["price_threshold_€/kWh", "total_revenue_€"]].values
+    # assemble results + pareto front
+    results   = pd.DataFrame(records)
+    pts       = results[["price_threshold_€/kWh","total_revenue_€"]].values
     is_pareto = np.ones(len(pts), dtype=bool)
     for i, p in enumerate(pts):
         mask = (pts[:,0] <= p[0]) & (pts[:,1] >= p[1])
@@ -319,17 +339,40 @@ def run_pareto(self):
             is_pareto[i] = False
     pareto_df = results[is_pareto]
 
-    self.log.insert(tk.END, "Pareto analysis complete.\n"); self.log.see(tk.END)
+    self.log.insert(tk.END, "Pareto analysis complete.\n")
+    self.log.see(tk.END)
+
+    # === Export full sweep + Pareto front to Excel ===
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    default_name = f"pareto_results_{timestamp}.xlsx"
+    save_path = filedialog.asksaveasfilename(
+        defaultextension=".xlsx",
+        filetypes=[("Excel files","*.xlsx"),("All files","*.*")],
+        initialfile=default_name,
+        title="Save Pareto Results As"
+    )
+    if save_path:
+        try:
+            with pd.ExcelWriter(save_path, engine='openpyxl') as writer:
+                results.to_excel(writer, sheet_name='AllRuns', index=False)
+                pareto_df.to_excel(writer, sheet_name='ParetoFront', index=False)
+            messagebox.showinfo("Saved",
+                f"Pareto results (AllRuns & ParetoFront) saved to\n{save_path}")
+            self.log.insert(tk.END,
+                f"Pareto results saved to {save_path}\n")
+        except Exception as e:
+            messagebox.showerror("Save Error", str(e))
+            self.log.insert(tk.END,
+                f"Error saving Pareto results: {e}\n")
 
     # 4) plot in a new Tk window, coloring by TES capacity
     win = tk.Toplevel(self)
     win.title("Pareto Front by TES Capacity")
     fig, ax = plt.subplots(figsize=(6,4))
-    
-    # pick one distinct color per TES capacity
+
     unique_sc = sorted(results["TES_capacity_kWh"].unique())
     cmap = plt.cm.get_cmap('tab10', len(unique_sc))
-    
+
     for idx, sc in enumerate(unique_sc):
         df_sc = results[results["TES_capacity_kWh"] == sc]
         ax.scatter(
@@ -339,7 +382,7 @@ def run_pareto(self):
             label=f"{sc} kWh",
             alpha=0.7
         )
-    
+
     # overlay Pareto front with black circles (no fill)
     ax.scatter(
         pareto_df["total_revenue_€"],
@@ -350,7 +393,7 @@ def run_pareto(self):
         linewidths=1.5,
         label="Pareto Front"
     )
-    
+
     ax.set_xlabel("Total Revenue (€)")
     ax.set_ylabel("Price Threshold (€/kWh)")
     ax.set_title("Pareto Front by TES Capacity")
@@ -360,7 +403,7 @@ def run_pareto(self):
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
 
-# Attach extension into the class
+# Attach Pareto extension into the class
 EnergyApp._add_pareto_menu = _add_pareto_menu
 EnergyApp.run_pareto      = run_pareto
 
@@ -370,6 +413,7 @@ def _patched_init(self, *args, **kwargs):
     _orig_init(self, *args, **kwargs)
     self._add_pareto_menu()
 EnergyApp.__init__ = _patched_init
+
 
 if __name__ == "__main__":
     app = EnergyApp()
