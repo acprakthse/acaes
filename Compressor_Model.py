@@ -79,4 +79,8 @@ def compressor_energy_model(
     df['T2_K'] = T2
     df['Delta_h_kJ_per_kg'] = delta_h
 
+     # Print peak mass flow
+    max_flow = df['m_air_kg'].max()/3600
+    print(f"Peak air‐mass flow: {max_flow:.2f} kg/s")
+
     return df

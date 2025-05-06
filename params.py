@@ -1,6 +1,6 @@
 # ALL PARAMETERS
 
-pareto_wind_turbine = 1
+pareto_wind_turbine = 7
 
 # Price Threshold
 charge_threshold = 0.07 
